@@ -8,6 +8,13 @@
       "when": 1786563300974,
       "tag": "0000_striped_madripoor",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1786564898422,
+      "tag": "0001_add_email_verified_and_market_flags",
+      "breakpoints": true
     }
   ]
 }

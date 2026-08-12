@@ -8,6 +8,7 @@
   "scripts": {
     "build": "nest build",
     "typecheck": "tsc --noEmit",
+    "db:seed": "ts-node -T src/db/seed.ts",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
     "start": "nest start",
     "start:dev": "nest start --watch",
@@ -44,6 +45,7 @@
     "eslint-config-prettier": "^10.0.1",
     "eslint-plugin-prettier": "^5.2.2",
     "globals": "^17.0.0",
+    "i18n-iso-countries": "^7.14.0",
     "jest": "^30.0.0",
     "prettier": "^3.4.2",
     "source-map-support": "^0.5.21",

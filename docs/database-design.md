@@ -28,13 +28,16 @@ described, not the pre-hire company/recruiter role.
 
 ## countries
 
-Reference table. Seeded by a migration, not written to by the app at
-runtime.
+Reference table, seeded separately (see
+[Key decision #7](#key-decisions)) — holds the **full** ISO 3166-1
+alpha-2 list, not just markets the platform currently operates in.
 
 | Column | Type | Nullable | Default | Notes |
 |---|---|---|---|---|
 | code | char(2) | not null | — | ISO 3166-1 alpha-2 |
 | name | text | not null | — | display name |
+| candidate_allowed | boolean | not null | `false` | market is open to candidates — see [Key decision #7](#key-decisions) |
+| employer_allowed | boolean | not null | `false` | market is open to employers — see [Key decision #7](#key-decisions) |
 
 - **Primary key:** `code`
 - **Foreign keys:** none
@@ -53,6 +56,7 @@ runtime.
 | password_hash | text | not null | — | never returned in API responses |
 | role | text | not null | — | `CHECK (role IN ('candidate','employer','admin'))` |
 | company_id | uuid | null | — | set only when `role = 'employer'` |
+| email_verified_at | timestamptz | null | — | null until the user verifies their email |
 | created_at | timestamptz | not null | `now()` | |
 | updated_at | timestamptz | not null | `now()` | |
 
@@ -561,6 +565,27 @@ doesn't need yet. The cost: there's nowhere to record payment status,
 invoicing, or dispute history — when any of that becomes real, it's new
 tables, not new columns bolted onto `applications`. This is a deliberate
 scope boundary, not an oversight.
+
+### 7. `countries` holds the full ISO list; market availability is a data flag, not a schema change
+
+**Choice:** `countries` is seeded with the **complete** ISO 3166-1
+alpha-2 list — every country, not just ones the platform currently
+operates in. Two booleans, `candidate_allowed` and `employer_allowed`
+(both default `false`), control which markets are actually open at the
+product layer. This means every `country_code` foreign key
+(`candidate_profiles`, `companies`) can always resolve — a candidate or
+company from any real country can be referenced without the FK ever
+failing with an unexplained "invalid input" error, even before or after
+that market is opened.
+
+**Tradeoff:** opening (or closing) a market is a plain `UPDATE
+countries SET candidate_allowed = true WHERE code = '...'`, not a
+migration and not a deploy — the tradeoff is that "is this country a
+live market" now lives in application data rather than in the schema
+itself, so anyone reading the schema alone can't tell which markets are
+actually active; that answer only comes from querying the table (or the
+seed script's market-flag list, which documents the current state in
+code review).
 
 ---
 
