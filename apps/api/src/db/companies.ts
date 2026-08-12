@@ -1,4 +1,11 @@
-import { pgTable, uuid, text, char, timestamp, index } from 'drizzle-orm/pg-core';
+import {
+  pgTable,
+  uuid,
+  text,
+  char,
+  timestamp,
+  index,
+} from 'drizzle-orm/pg-core';
 import { countries } from './countries';
 
 export const companies = pgTable(
@@ -11,7 +18,9 @@ export const companies = pgTable(
       .notNull()
       .references(() => countries.code, { onDelete: 'restrict' }),
     description: text('description'),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true })
       .notNull()
       .defaultNow()

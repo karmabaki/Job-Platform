@@ -35,7 +35,9 @@ export const candidateProfiles = pgTable(
     salaryExpectationMax: integer('salary_expectation_max'),
     salaryCurrency: char('salary_currency', { length: 3 }),
     salaryPeriod: text('salary_period'),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true })
       .notNull()
       .defaultNow()
@@ -44,7 +46,10 @@ export const candidateProfiles = pgTable(
   (table) => [
     index('candidate_profiles_country_code_idx').on(table.countryCode),
     index('candidate_profiles_availability_idx').on(table.availability),
-    check('candidate_profiles_availability_check', sql`${table.availability} IN ('full_time','part_time','contract')`),
+    check(
+      'candidate_profiles_availability_check',
+      sql`${table.availability} IN ('full_time','part_time','contract')`,
+    ),
     check(
       'candidate_profiles_salary_period_check',
       sql`${table.salaryPeriod} IS NULL OR ${table.salaryPeriod} IN ('yearly','monthly','hourly')`,
@@ -74,7 +79,9 @@ export const candidateSkills = pgTable(
       .notNull()
       .references(() => skills.id, { onDelete: 'restrict' }),
     yearsExperience: smallint('years_experience'),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
   },
   (table) => [
     primaryKey({ columns: [table.candidateId, table.skillId] }),

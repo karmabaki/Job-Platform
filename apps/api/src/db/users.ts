@@ -1,4 +1,12 @@
-import { pgTable, uuid, text, timestamp, index, uniqueIndex, check } from 'drizzle-orm/pg-core';
+import {
+  pgTable,
+  uuid,
+  text,
+  timestamp,
+  index,
+  uniqueIndex,
+  check,
+} from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 import { companies } from './companies';
 
@@ -9,9 +17,13 @@ export const users = pgTable(
     email: text('email').notNull(),
     passwordHash: text('password_hash').notNull(),
     role: text('role').notNull(),
-    companyId: uuid('company_id').references(() => companies.id, { onDelete: 'set null' }),
+    companyId: uuid('company_id').references(() => companies.id, {
+      onDelete: 'set null',
+    }),
     emailVerifiedAt: timestamp('email_verified_at', { withTimezone: true }),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .notNull()
+      .defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true })
       .notNull()
       .defaultNow()
@@ -20,7 +32,13 @@ export const users = pgTable(
   (table) => [
     uniqueIndex('users_email_lower_unique').on(sql`lower(${table.email})`),
     index('users_company_id_idx').on(table.companyId),
-    check('users_role_check', sql`${table.role} IN ('candidate','employer','admin')`),
-    check('users_role_company_check', sql`${table.role} = 'employer' OR ${table.companyId} IS NULL`),
+    check(
+      'users_role_check',
+      sql`${table.role} IN ('candidate','employer','admin')`,
+    ),
+    check(
+      'users_role_company_check',
+      sql`${table.role} = 'employer' OR ${table.companyId} IS NULL`,
+    ),
   ],
 );

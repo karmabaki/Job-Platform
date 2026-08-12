@@ -41,27 +41,102 @@ async function seedCountries() {
 // targeted-sanction jurisdictions (RU BY VE MM NI) are deliberately
 // excluded from both lists.
 const CANDIDATE_ALLOWED_CODES = [
-  'IN', 'PK', 'BD', 'LK', 'NP',
-  'VN', 'PH', 'ID', 'KH',
-  'EG', 'MA', 'TN', 'JO', 'DZ', 'NG', 'KE', 'GH', 'RW', 'UG', 'TZ',
-  'RS', 'MK', 'AL', 'BA', 'ME', 'MD', 'GE', 'AM', 'AZ', 'UZ', 'KZ', 'KG',
-  'AR', 'CO', 'PE', 'BO', 'EC', 'PY', 'GT', 'HN', 'SV', 'DO',
+  'IN',
+  'PK',
+  'BD',
+  'LK',
+  'NP',
+  'VN',
+  'PH',
+  'ID',
+  'KH',
+  'EG',
+  'MA',
+  'TN',
+  'JO',
+  'DZ',
+  'NG',
+  'KE',
+  'GH',
+  'RW',
+  'UG',
+  'TZ',
+  'RS',
+  'MK',
+  'AL',
+  'BA',
+  'ME',
+  'MD',
+  'GE',
+  'AM',
+  'AZ',
+  'UZ',
+  'KZ',
+  'KG',
+  'AR',
+  'CO',
+  'PE',
+  'BO',
+  'EC',
+  'PY',
+  'GT',
+  'HN',
+  'SV',
+  'DO',
   'TR',
 ];
 
 const EMPLOYER_ALLOWED_CODES = [
-  'US', 'CA',
-  'GB', 'IE', 'DE', 'NL', 'FR', 'BE', 'LU', 'AT', 'CH',
-  'DK', 'SE', 'NO', 'FI', 'IS',
-  'ES', 'IT', 'PT',
-  'PL', 'CZ', 'EE', 'LT', 'SI', 'SK', 'HU',
-  'AU', 'NZ', 'SG', 'JP', 'KR', 'HK',
-  'IL', 'AE', 'SA', 'QA', 'KW', 'BH', 'OM',
+  'US',
+  'CA',
+  'GB',
+  'IE',
+  'DE',
+  'NL',
+  'FR',
+  'BE',
+  'LU',
+  'AT',
+  'CH',
+  'DK',
+  'SE',
+  'NO',
+  'FI',
+  'IS',
+  'ES',
+  'IT',
+  'PT',
+  'PL',
+  'CZ',
+  'EE',
+  'LT',
+  'SI',
+  'SK',
+  'HU',
+  'AU',
+  'NZ',
+  'SG',
+  'JP',
+  'KR',
+  'HK',
+  'IL',
+  'AE',
+  'SA',
+  'QA',
+  'KW',
+  'BH',
+  'OM',
 ];
 
 async function setInitialMarketFlags() {
-  await db.update(countries).set({ candidateAllowed: true }).where(inArray(countries.code, CANDIDATE_ALLOWED_CODES));
-  await db.update(countries).set({ employerAllowed: true }).where(inArray(countries.code, EMPLOYER_ALLOWED_CODES));
+  await db
+    .update(countries)
+    .set({ candidateAllowed: true })
+    .where(inArray(countries.code, CANDIDATE_ALLOWED_CODES));
+  await db
+    .update(countries)
+    .set({ employerAllowed: true })
+    .where(inArray(countries.code, EMPLOYER_ALLOWED_CODES));
 }
 
 async function main() {
