@@ -1,7 +1,8 @@
 # Database Design — MVP
 
 Scope: `users`, `candidate_profiles`, `companies`, `countries`, `skills`,
-`skill_aliases`, `candidate_skills`, `jobs`, `job_skills`, `applications`.
+`skill_aliases`, `candidate_skills`, `jobs`, `job_skills`, `applications`,
+`conversations`, `messages`.
 
 This is a design document only. No schema code, no migrations, no packages
 installed. Types are written in PostgreSQL terms; the Drizzle schema is a
@@ -9,6 +10,19 @@ later, separate step.
 
 All primary keys are `uuid` (default `gen_random_uuid()`) unless noted — see
 [Open questions #1](#open-questions) for why this needed an assumption.
+
+## Naming rule (non-negotiable)
+
+Never use **"employment"**, **"employee"**, or **"employer contract"** for
+the post-hire relationship between a candidate and a company. Use
+**"engagement"** and **"contractor"** instead — e.g.
+`applications.engagement_type`, not `employment_type`. This is a
+legal-risk decision (the platform must not imply an employment
+relationship it doesn't actually create), not a style preference, and it
+applies to the whole codebase, not just this document. "Employer" as the
+name for the company-side user role (`users.role = 'employer'`) is
+unaffected — the rule targets how the *post-hire* relationship is
+described, not the pre-hire company/recruiter role.
 
 ---
 
@@ -35,7 +49,7 @@ runtime.
 | Column | Type | Nullable | Default | Notes |
 |---|---|---|---|---|
 | id | uuid | not null | `gen_random_uuid()` | |
-| email | text | not null | — | login identity |
+| email | text | not null | — | login identity; stored lowercase, normalized before insert/update |
 | password_hash | text | not null | — | never returned in API responses |
 | role | text | not null | — | `CHECK (role IN ('candidate','employer','admin'))` |
 | company_id | uuid | null | — | set only when `role = 'employer'` |
@@ -46,9 +60,17 @@ runtime.
 - **Foreign keys:**
   - `company_id` → `companies(id)` **ON DELETE SET NULL** — losing the
     company record shouldn't delete the user account, just detach it
-- **Unique constraints:** `email`
+- **Check constraints:**
+  - `CHECK (role = 'employer' OR company_id IS NULL)` — a candidate or
+    admin user can never carry a `company_id`
+- **Unique constraints:** none as a plain column constraint — enforced
+  instead by a functional unique index on `lower(email)` (see Indexes),
+  since Postgres can't put a table `UNIQUE` constraint directly on an
+  expression
 - **Indexes:**
-  - unique index on `email` — every login looks up by email
+  - unique index on `lower(email)` — every login looks up by
+    case-normalized email; this is what actually enforces "one account
+    per email" regardless of casing
   - index on `company_id` — "list employer users for this company" (admin
     tooling, employer team views)
 
@@ -56,12 +78,16 @@ runtime.
 
 ## candidate_profiles
 
-One-to-one with `users` (only for `role = 'candidate'`).
+One-to-one with `users` (only for `role = 'candidate'`). Shares its
+primary key with `users` instead of carrying its own surrogate id — the
+standard "extension table" pattern for a strict 1:1 relationship. This
+means `candidate_id` columns elsewhere in this document
+(`candidate_skills`, `applications`) are literally `users.id` values, not
+a separate profile id.
 
 | Column | Type | Nullable | Default | Notes |
 |---|---|---|---|---|
-| id | uuid | not null | `gen_random_uuid()` | |
-| user_id | uuid | not null | — | |
+| user_id | uuid | not null | — | primary key; also FK to `users(id)` |
 | full_name | text | not null | — | |
 | headline | text | null | — | e.g. "Senior Backend Engineer" |
 | bio | text | null | — | |
@@ -77,15 +103,24 @@ One-to-one with `users` (only for `role = 'candidate'`).
 | created_at | timestamptz | not null | `now()` | |
 | updated_at | timestamptz | not null | `now()` | |
 
-- **Primary key:** `id`
+- **Primary key:** `user_id`
 - **Foreign keys:**
   - `user_id` → `users(id)` **ON DELETE CASCADE** — profile has no meaning
     without its user
   - `country_code` → `countries(code)` **ON DELETE RESTRICT** — a country
     in active use by a profile can't disappear out from under it
-- **Unique constraints:** `user_id` (enforces one-to-one)
+- **Check constraints:**
+  - `CHECK (salary_expectation_min IS NULL OR salary_expectation_min >= 0)`
+    — no negative salary expectations
+  - `CHECK (salary_expectation_min IS NULL OR salary_expectation_max IS
+    NULL OR salary_expectation_max >= salary_expectation_min)` — max can't
+    be below min when both are given
+  - `CHECK ((salary_expectation_min IS NULL AND salary_expectation_max IS
+    NULL) OR (salary_currency IS NOT NULL AND salary_period IS NOT NULL))`
+    — a bare number with no currency or period is meaningless
+- **Unique constraints:** none beyond the primary key (`user_id` already
+  guarantees one-to-one with `users`)
 - **Indexes:**
-  - unique index on `user_id` — also serves the "load my profile" lookup
   - index on `country_code` — candidate search/filter by location
   - index on `availability` — job-search filtering
 
@@ -145,18 +180,20 @@ Maps free-text variants ("JS", "ReactJS") to one canonical skill — see
 |---|---|---|---|---|
 | id | uuid | not null | `gen_random_uuid()` | |
 | skill_id | uuid | not null | — | |
-| alias | text | not null | — | |
+| alias | text | not null | — | stored lowercase, normalized before insert |
 | created_at | timestamptz | not null | `now()` | |
 
 - **Primary key:** `id`
 - **Foreign keys:**
   - `skill_id` → `skills(id)` **ON DELETE CASCADE** — an alias is
     meaningless without its canonical skill
-- **Unique constraints:** `alias` — one alias string can only ever point at
-  one canonical skill, otherwise lookup is ambiguous
+- **Unique constraints:** none as a plain column constraint — enforced
+  instead by a functional unique index on `lower(alias)` (see Indexes),
+  same reasoning as `users.email`
 - **Indexes:**
-  - unique index on `alias` — this table's entire purpose is
-    "look up by alias text"
+  - unique index on `lower(alias)` — this table's entire purpose is
+    "look up by alias text," case-insensitively; also stops "JS" and "js"
+    being registered as two different aliases
   - index on `skill_id` — "list all known variants for this skill" (admin
     UI)
 
@@ -168,7 +205,7 @@ Join table between candidates and skills.
 
 | Column | Type | Nullable | Default | Notes |
 |---|---|---|---|---|
-| candidate_id | uuid | not null | — | |
+| candidate_id | uuid | not null | — | references `candidate_profiles.user_id` |
 | skill_id | uuid | not null | — | |
 | years_experience | smallint | null | — | see [Open questions #6](#open-questions) |
 | created_at | timestamptz | not null | `now()` | |
@@ -176,7 +213,7 @@ Join table between candidates and skills.
 - **Primary key:** composite `(candidate_id, skill_id)` — a candidate lists
   a given skill at most once
 - **Foreign keys:**
-  - `candidate_id` → `candidate_profiles(id)` **ON DELETE CASCADE**
+  - `candidate_id` → `candidate_profiles(user_id)` **ON DELETE CASCADE**
   - `skill_id` → `skills(id)` **ON DELETE RESTRICT** — retire a skill via
     `is_active`, don't delete it out from under existing candidates
 - **Unique constraints:** none beyond the composite primary key
@@ -201,7 +238,9 @@ Join table between candidates and skills.
 | salary_max | integer | null | — | |
 | salary_currency | char(3) | null | — | |
 | salary_period | text | null | — | `CHECK (salary_period IN ('yearly','monthly','hourly'))` |
-| timezone_requirement | text | null | — | see [Open questions #5](#open-questions) |
+| timezone_anchor | text | null | — | IANA tz name the required overlap is measured against — see [Open questions #5](#open-questions) |
+| timezone_overlap_hours | smallint | null | — | minimum required overlap, in hours — see [Open questions #5](#open-questions) |
+| published_at | timestamptz | null | — | set when `status` first becomes `'published'` |
 | created_at | timestamptz | not null | `now()` | |
 | updated_at | timestamptz | not null | `now()` | |
 
@@ -216,11 +255,22 @@ drift out of sync.
     has no meaning once its company is gone
   - `created_by` → `users(id)` **ON DELETE SET NULL** — if the employer
     user who posted it is removed, the posting stays with the company
+- **Check constraints:**
+  - `CHECK (salary_min IS NULL OR salary_min >= 0)` — no negative salaries
+  - `CHECK (salary_min IS NULL OR salary_max IS NULL OR salary_max >=
+    salary_min)` — max can't be below min when both are given
+  - `CHECK ((salary_min IS NULL AND salary_max IS NULL) OR
+    (salary_currency IS NOT NULL AND salary_period IS NOT NULL))` — a bare
+    number with no currency or period is meaningless
+  - `CHECK (status <> 'published' OR published_at IS NOT NULL)` — a
+    published job with a null `published_at` would never appear in the
+    feed, since the feed index sorts on `published_at`
 - **Unique constraints:** none
 - **Indexes:**
   - index on `company_id` — employer dashboard, "jobs for my company"
-  - composite index on `(status, created_at)` — the public job feed:
-    published jobs, newest first
+  - composite index on `(status, published_at DESC)` — the public job
+    feed: published jobs, most recently published first (`published_at`
+    reflects re-publishing; `created_at` wouldn't)
   - index on `created_by` — "jobs I personally posted"
 
 ---
@@ -253,17 +303,33 @@ Join table between jobs and skills.
 |---|---|---|---|---|
 | id | uuid | not null | `gen_random_uuid()` | |
 | job_id | uuid | not null | — | |
-| candidate_id | uuid | not null | — | |
+| candidate_id | uuid | not null | — | references `candidate_profiles.user_id` |
 | status | text | not null | `'applied'` | `CHECK (status IN ('applied','shortlisted','rejected','hired'))` |
 | cover_note | text | null | — | |
+| hired_at | timestamptz | null | — | set when the application converts to a hire |
+| agreed_rate_amount | integer | null | — | integer only, see [Key decision #2](#key-decisions) |
+| agreed_rate_currency | char(3) | null | — | ISO 4217 |
+| engagement_type | text | null | — | `CHECK (engagement_type IS NULL OR engagement_type IN ('permanent','fixed_term'))` |
+| engagement_months | smallint | null | — | minimum contractor engagement length, in months — `CHECK (engagement_months IS NULL OR engagement_months >= 6)` |
+| placement_fee_amount | integer | null | — | stored only, not computed — see [Key decision #6](#key-decisions) |
 | created_at | timestamptz | not null | `now()` | |
 | updated_at | timestamptz | not null | `now()` | |
+
+Note: `placement_fee_amount` is a **stored** value, not computed in SQL —
+the fee formula is a business rule that will live in the backend later
+(see [Key decision #6](#key-decisions)).
 
 - **Primary key:** `id`
 - **Foreign keys:**
   - `job_id` → `jobs(id)` **ON DELETE CASCADE** — applications are
     meaningless once the job posting is gone
-  - `candidate_id` → `candidate_profiles(id)` **ON DELETE CASCADE**
+  - `candidate_id` → `candidate_profiles(user_id)` **ON DELETE CASCADE**
+- **Check constraints:**
+  - `CHECK (agreed_rate_amount IS NULL OR agreed_rate_currency IS NOT
+    NULL)` — a rate with no currency is meaningless
+  - `CHECK (status <> 'hired' OR hired_at IS NOT NULL)` — same class of
+    bug as the `jobs` published/`published_at` pair; hire counts must be
+    trustworthy
 - **Unique constraints:** `(job_id, candidate_id)` — a candidate can apply
   to a given job only once
 - **Indexes:**
@@ -272,6 +338,112 @@ Join table between jobs and skills.
     so this covers the other lookup direction)
   - composite index on `(job_id, status)` — employer's applicant list
     filtered/grouped by pipeline stage
+
+---
+
+## conversations
+
+One thread per application — see [Key decision #6](#key-decisions).
+
+| Column | Type | Nullable | Default | Notes |
+|---|---|---|---|---|
+| id | uuid | not null | `gen_random_uuid()` | |
+| application_id | uuid | not null | — | |
+| created_at | timestamptz | not null | `now()` | |
+
+- **Primary key:** `id`
+- **Foreign keys:**
+  - `application_id` → `applications(id)` **ON DELETE CASCADE** — a
+    conversation has no meaning once the application it's attached to is
+    gone
+- **Unique constraints:** `application_id` — exactly one thread per
+  application
+- **Indexes:**
+  - unique index on `application_id` — enforces the one-thread-per-
+    application rule and is also the lookup used to open a thread from an
+    application
+
+---
+
+## messages
+
+| Column | Type | Nullable | Default | Notes |
+|---|---|---|---|---|
+| id | uuid | not null | `gen_random_uuid()` | |
+| conversation_id | uuid | not null | — | |
+| sender_user_id | uuid | not null | — | |
+| body | text | not null | — | |
+| created_at | timestamptz | not null | `now()` | |
+
+- **Primary key:** `id`
+- **Foreign keys:**
+  - `conversation_id` → `conversations(id)` **ON DELETE CASCADE** — a
+    message has no meaning once its thread is gone
+  - `sender_user_id` → `users(id)` **ON DELETE RESTRICT** — preserves
+    message authorship; a user row can't be removed while they have
+    message history (inert today since the MVP has no delete endpoints,
+    but correct if that ever changes)
+- **Unique constraints:** none
+- **Indexes:**
+  - composite index on `(conversation_id, created_at DESC)` — loading a
+    thread's messages, newest first, is the only real read query this
+    table serves
+
+---
+
+## Operational notes
+
+### updated_at maintenance
+
+Every `updated_at` column listed above is maintained at the application
+layer via Drizzle ORM's `$onUpdate()` column option, which sets
+`updated_at = now()` automatically whenever Drizzle performs an `update`
+on that row. There is no Postgres trigger doing this. That keeps the
+timestamp behavior defined alongside the rest of the schema-as-code
+instead of a separate trigger migration, consistent with this project's
+"no unnecessary abstraction" rule. The tradeoff: a write that bypasses
+Drizzle (a manual `psql` `UPDATE`, a future direct-SQL job) will not
+refresh `updated_at` — accepted because the MVP has no write path outside
+the NestJS API.
+
+### Deletion policy (resolved — see [Open questions](#open-questions))
+
+The MVP has **no soft delete** and exposes **no delete endpoints**
+anywhere. Rows disappear only as a side effect of `ON DELETE CASCADE` on
+a genuinely dependent row, or are blocked by `ON DELETE RESTRICT` when
+something still references them. Entities that need a lifecycle instead
+of deletion use a status column already in this schema — a job is retired
+by setting `status = 'closed'`, not by deleting the row.
+
+### Authorization requirements not enforceable in SQL
+
+**`messages.sender_user_id` has no database-level guarantee that the
+sender actually belongs to the conversation.** The foreign key only
+proves `sender_user_id` is *some* real user — nothing in the schema stops
+a candidate from a different application, or an employer from an
+unrelated company, from being inserted as the sender on someone else's
+thread.
+
+**Before any insert into `messages`, the backend MUST verify** the
+sender is either:
+- the application's `candidate_id` (via
+  `conversations.application_id → applications.candidate_id`), or
+- a user whose `company_id` matches the job's `company_id` (via
+  `applications.job_id → jobs.company_id`).
+
+**Flagged explicitly as a Phase 3 requirement so it is not forgotten** —
+this is application-layer authorization logic, not a schema change, but
+it is a hard prerequisite for `messages` being safe to write to.
+
+**`candidate_profiles.user_id` references `users(id)` with no database
+guarantee that the referenced user's `role` is `'candidate'`.** An
+employer or admin row could just as easily get a `candidate_profiles`
+row attached to it, and from there go on to apply to jobs. **The backend
+MUST verify `role = 'candidate'`** before creating a `candidate_profiles`
+row, and again before creating an `applications` row. **Flagged
+explicitly as a Phase 3 requirement** for the same reason as above — this
+is application-layer authorization, not something the schema can enforce
+on its own.
 
 ---
 
@@ -332,7 +504,10 @@ matching app-layer types) being kept in sync by hand.
 
 **Choice:** one company has many employer users
 (`users.company_id → companies.id`, nullable — candidates have no
-company). A user belongs to at most one company.
+company). A user belongs to at most one company. Enforced with
+`CHECK (role = 'employer' OR company_id IS NULL)`, so a candidate or
+admin row can never carry a `company_id` even from an application-layer
+bug.
 
 **Tradeoff:** this doesn't support one person representing multiple
 companies (e.g. a recruiting agency posting for several clients) or a
@@ -369,6 +544,24 @@ join table later — deliberately not built now, per CLAUDE.md's
   in place — which is the "no major migration" guarantee this design is
   making.
 
+### 6. Post-hire fields live on `applications`; no payment/escrow/contract tables
+
+**Choice:** hiring-outcome data (`hired_at`, `agreed_rate_amount`,
+`agreed_rate_currency`, `engagement_type`, `engagement_months`,
+`placement_fee_amount`) is stored directly on `applications` — the row
+that already represents "this candidate, this job." `conversations` /
+`messages` give each application a single message thread. No `payment`,
+`escrow`, `invoice`, `contract`, or `dispute` tables exist, and none are
+planned for this phase. `placement_fee_amount` is a stored number only —
+the formula that computes it is a business rule for the backend, not SQL.
+
+**Tradeoff:** this is the cheapest way to record "we hired this person,
+here's what was agreed" without building a payments domain the MVP
+doesn't need yet. The cost: there's nowhere to record payment status,
+invoicing, or dispute history — when any of that becomes real, it's new
+tables, not new columns bolted onto `applications`. This is a deliberate
+scope boundary, not an oversight.
+
 ---
 
 ## Open questions
@@ -397,12 +590,17 @@ this document:
    with no backing `currencies` table, since CLAUDE.md's normalization
    requirement is scoped explicitly to skills, not currencies.
 
-5. **`jobs.timezone_requirement`.** Not listed anywhere in CLAUDE.md's MVP
-   table list or scope, but "job discovery" plus candidate
-   timezone/availability strongly implies employers need to express a
-   required overlap. Added as a nullable column and flagged here rather
-   than added silently — remove if it's actually out of scope for this
-   pass.
+5. **Job timezone-fit fields.** Not listed anywhere in CLAUDE.md's MVP
+   table list or scope; "job discovery" plus candidate
+   timezone/availability strongly implied employers need to express a
+   required overlap, so a field was added and flagged here rather than
+   silently. **Existence resolved** in Phase 2 Part B:
+   `jobs.timezone_anchor` (IANA tz name) + `jobs.timezone_overlap_hours`
+   (minimum required overlap, in hours). Still open: the schema stores
+   these two values but doesn't encode how overlap is computed or
+   enforced (e.g. compared against which of the candidate's fields,
+   whether it's a hard filter or a ranking signal) — that's
+   matching/query logic for a later phase, not a schema question.
 
 6. **`candidate_skills.years_experience` and `job_skills.is_required`.**
    Not explicitly requested. Added because the MVP scope says candidates
@@ -422,12 +620,11 @@ this document:
    can legitimately share a display name across different legal entities
    or countries. Flag if you want it constrained instead.
 
-9. **Deletion policy for `users` / `companies` / `jobs`.** CLAUDE.md states
-   no retention or account-deactivation policy. This design uses hard
-   `ON DELETE CASCADE` / `RESTRICT` / `SET NULL` throughout and has no
-   `deleted_at` or `is_active` flag on `users`, `companies`, or `jobs`
-   themselves (only `skills` gets a soft-disable flag). This is the
-   largest assumption in the document — if you actually want soft-delete
-   / account deactivation anywhere, several `ON DELETE` behaviours above
-   would need to change, and it's much cheaper to add that now than after
-   real data exists.
+9. **Deletion policy for `users` / `companies` / `jobs`.** **Resolved in
+   Phase 2 Part B:** no soft delete, no delete endpoints anywhere in the
+   MVP — see [Operational notes → Deletion policy](#operational-notes) for
+   the resolution. (Originally: CLAUDE.md states no retention or
+   account-deactivation policy, so this was the largest open assumption in
+   the document — hard `ON DELETE CASCADE` / `RESTRICT` / `SET NULL` were
+   used throughout with no `deleted_at` flag anywhere except
+   `skills.is_active`.)
