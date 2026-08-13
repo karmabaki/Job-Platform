@@ -1,7 +1,9 @@
 # Database Design — MVP
 
 Scope: `users`, `candidate_profiles`, `companies`, `countries`, `skills`,
-`skill_aliases`, `candidate_skills`, `jobs`, `job_skills`, `applications`,
+`skill_aliases`, `candidate_skills`, `candidate_languages`,
+`candidate_portfolio_items`, `candidate_work_history`,
+`candidate_education`, `jobs`, `job_skills`, `applications`,
 `conversations`, `messages`.
 
 This is a design document only. No schema code, no migrations, no packages
@@ -86,8 +88,9 @@ One-to-one with `users` (only for `role = 'candidate'`). Shares its
 primary key with `users` instead of carrying its own surrogate id — the
 standard "extension table" pattern for a strict 1:1 relationship. This
 means `candidate_id` columns elsewhere in this document
-(`candidate_skills`, `applications`) are literally `users.id` values, not
-a separate profile id.
+(`candidate_skills`, `candidate_languages`, `candidate_portfolio_items`,
+`candidate_work_history`, `candidate_education`, `applications`) are
+literally `users.id` values, not a separate profile id.
 
 | Column | Type | Nullable | Default | Notes |
 |---|---|---|---|---|
@@ -96,7 +99,6 @@ a separate profile id.
 | headline | text | null | — | e.g. "Senior Backend Engineer" |
 | bio | text | null | — | |
 | github_url | text | null | — | |
-| portfolio_url | text | null | — | |
 | country_code | char(2) | not null | — | candidate_country |
 | timezone | text | not null | — | IANA tz name, e.g. `Asia/Tehran` |
 | availability | text | not null | — | `CHECK (availability IN ('full_time','part_time','contract'))` — see [Open questions #3](#open-questions) |
@@ -104,8 +106,16 @@ a separate profile id.
 | salary_expectation_max | integer | null | — | |
 | salary_currency | char(3) | null | — | ISO 4217, required together with min/max at the app layer |
 | salary_period | text | null | — | `CHECK (salary_period IN ('yearly','monthly','hourly'))` |
+| total_years_experience | smallint | null | — | overall career length — a different question from `candidate_skills.years_experience` (per-skill); see [Open questions #6](#open-questions). `CHECK (total_years_experience IS NULL OR (total_years_experience BETWEEN 0 AND 60))` |
+| profile_completeness | smallint | not null | `0` | `CHECK (profile_completeness BETWEEN 0 AND 100)` — see [Key decision #8](#key-decisions) |
+| is_searchable | boolean | not null | `false` | true once `profile_completeness` crosses the threshold — see [Key decision #8](#key-decisions) |
 | created_at | timestamptz | not null | `now()` | |
 | updated_at | timestamptz | not null | `now()` | |
+
+Note: `portfolio_url` was **removed** in Phase 4.5 — a single link is now
+represented as one row in `candidate_portfolio_items` instead (which also
+supports multiple items, titles, and descriptions that a bare URL
+column couldn't).
 
 - **Primary key:** `user_id`
 - **Foreign keys:**
@@ -122,6 +132,9 @@ a separate profile id.
   - `CHECK ((salary_expectation_min IS NULL AND salary_expectation_max IS
     NULL) OR (salary_currency IS NOT NULL AND salary_period IS NOT NULL))`
     — a bare number with no currency or period is meaningless
+  - `CHECK (total_years_experience IS NULL OR (total_years_experience
+    BETWEEN 0 AND 60))` — sanity bound, not a real-world limit enforcement
+  - `CHECK (profile_completeness BETWEEN 0 AND 100)` — it's a percentage
 - **Unique constraints:** none beyond the primary key (`user_id` already
   guarantees one-to-one with `users`)
 - **Indexes:**
@@ -225,6 +238,131 @@ Join table between candidates and skills.
   - index on `skill_id` — "which candidates have skill X" — the core
     query any future matching feature runs (the primary key already
     indexes lookups the other direction, by `candidate_id`)
+
+---
+
+## candidate_languages
+
+Join table between candidates and spoken languages.
+
+| Column | Type | Nullable | Default | Notes |
+|---|---|---|---|---|
+| candidate_id | uuid | not null | — | references `candidate_profiles.user_id` |
+| language_code | char(2) | not null | — | ISO 639-1 |
+| proficiency | text | not null | — | `CHECK (proficiency IN ('basic','conversational','professional','fluent','native'))` |
+
+- **Primary key:** composite `(candidate_id, language_code)` — a candidate
+  lists a given language at most once
+- **Foreign keys:**
+  - `candidate_id` → `candidate_profiles(user_id)` **ON DELETE CASCADE**
+- **Unique constraints:** none beyond the composite primary key
+- **Indexes:** none beyond the primary key — unlike `candidate_skills`,
+  this table has no current reverse-lookup use case ("candidates who
+  speak X") requested; not added speculatively
+
+---
+
+## candidate_portfolio_items
+
+| Column | Type | Nullable | Default | Notes |
+|---|---|---|---|---|
+| id | uuid | not null | `gen_random_uuid()` | |
+| candidate_id | uuid | not null | — | references `candidate_profiles.user_id` |
+| title | text | not null | — | |
+| description | text | null | — | |
+| url | text | null | — | optional — private/NDA'd work has no public link |
+| sort_order | smallint | not null | `0` | candidate-controlled display order |
+| created_at | timestamptz | not null | `now()` | |
+| updated_at | timestamptz | not null | `now()` | |
+
+- **Primary key:** `id`
+- **Foreign keys:**
+  - `candidate_id` → `candidate_profiles(user_id)` **ON DELETE CASCADE**
+- **Unique constraints:** none
+- **Indexes:**
+  - composite index on `(candidate_id, sort_order)` — loading a
+    candidate's portfolio in display order is the only real read query
+    this table serves
+
+---
+
+## candidate_work_history
+
+| Column | Type | Nullable | Default | Notes |
+|---|---|---|---|---|
+| id | uuid | not null | `gen_random_uuid()` | |
+| candidate_id | uuid | not null | — | references `candidate_profiles.user_id` |
+| role_title | text | not null | — | |
+| company_name | text | null | — | optional — NDA'd employer |
+| description | text | null | — | |
+| start_year | smallint | not null | — | `CHECK (start_year BETWEEN 1950 AND 2100)` |
+| start_month | smallint | null | — | `CHECK (start_month IS NULL OR start_month BETWEEN 1 AND 12)` |
+| end_year | smallint | null | — | |
+| end_month | smallint | null | — | `CHECK (end_month IS NULL OR end_month BETWEEN 1 AND 12)` |
+| is_current | boolean | not null | `false` | |
+| sort_order | smallint | not null | `0` | candidate-controlled display order |
+| created_at | timestamptz | not null | `now()` | |
+| updated_at | timestamptz | not null | `now()` | |
+
+- **Primary key:** `id`
+- **Foreign keys:**
+  - `candidate_id` → `candidate_profiles(user_id)` **ON DELETE CASCADE**
+- **Check constraints:**
+  - `CHECK (start_year BETWEEN 1950 AND 2100)` — sanity bound
+  - `CHECK (start_month IS NULL OR start_month BETWEEN 1 AND 12)`
+  - `CHECK (end_month IS NULL OR end_month BETWEEN 1 AND 12)`
+  - `CHECK (is_current = false OR (end_year IS NULL AND end_month IS
+    NULL))` — a current role can't also have an end date
+  - `CHECK (end_year IS NULL OR end_year >= start_year)` — end can't
+    precede start
+  - `CHECK (end_year IS NULL OR end_year > start_year OR end_month IS
+    NULL OR start_month IS NULL OR end_month >= start_month)` — within
+    the same year, end month can't precede start month (when both are
+    known)
+- **Unique constraints:** none
+- **Indexes:**
+  - composite index on `(candidate_id, sort_order)` — same reasoning as
+    `candidate_portfolio_items`
+
+---
+
+## candidate_education
+
+Same shape as `candidate_work_history` — the three named-entity columns
+are swapped for education-specific ones (`institution_name` / `degree` /
+`field_of_study` in place of `role_title` / `company_name`), plus its
+own free-text `description` (thesis, honors, coursework — resolved per
+[Open questions #10](#open-questions)); dates, `is_current`,
+`sort_order`, and all four cross-field date `CHECK`s are identical.
+
+| Column | Type | Nullable | Default | Notes |
+|---|---|---|---|---|
+| id | uuid | not null | `gen_random_uuid()` | |
+| candidate_id | uuid | not null | — | references `candidate_profiles.user_id` |
+| institution_name | text | not null | — | |
+| degree | text | null | — | |
+| field_of_study | text | null | — | |
+| description | text | null | — | thesis, honors, coursework, etc. |
+| start_year | smallint | not null | — | `CHECK (start_year BETWEEN 1950 AND 2100)` |
+| start_month | smallint | null | — | `CHECK (start_month IS NULL OR start_month BETWEEN 1 AND 12)` |
+| end_year | smallint | null | — | |
+| end_month | smallint | null | — | `CHECK (end_month IS NULL OR end_month BETWEEN 1 AND 12)` |
+| is_current | boolean | not null | `false` | |
+| sort_order | smallint | not null | `0` | candidate-controlled display order |
+| created_at | timestamptz | not null | `now()` | |
+| updated_at | timestamptz | not null | `now()` | |
+
+- **Primary key:** `id`
+- **Foreign keys:**
+  - `candidate_id` → `candidate_profiles(user_id)` **ON DELETE CASCADE**
+- **Check constraints:** identical set to `candidate_work_history`
+  (`start_year` range, `start_month`/`end_month` range, `is_current`
+  implies no end date, `end_year >= start_year`, same-year month
+  ordering)
+- **Unique constraints:** none
+- **Indexes:**
+  - composite index on `(candidate_id, sort_order)` — same reasoning as
+    `candidate_portfolio_items`
 
 ---
 
@@ -410,6 +548,21 @@ Drizzle (a manual `psql` `UPDATE`, a future direct-SQL job) will not
 refresh `updated_at` — accepted because the MVP has no write path outside
 the NestJS API.
 
+### profile_completeness recalculation
+
+Like `updated_at`, `candidate_profiles.profile_completeness` (and the
+`is_searchable` flag derived from it) is maintained at the application
+layer, not by a Postgres trigger — same reasoning as `updated_at`
+above: one mechanism (Drizzle service code), not two (SQL triggers plus
+app code), for the same class of "derived on write" column.
+
+**Recalculated on every write to:** `candidate_profiles` itself, or any
+row in `candidate_skills`, `candidate_languages`,
+`candidate_portfolio_items`, `candidate_work_history`, or
+`candidate_education` for that candidate. See [Key decision
+#8](#key-decisions) for the weighting formula and the `is_searchable`
+threshold.
+
 ### Deletion policy (resolved — see [Open questions](#open-questions))
 
 The MVP has **no soft delete** and exposes **no delete endpoints**
@@ -420,6 +573,17 @@ of deletion use a status column already in this schema — a job is retired
 by setting `status = 'closed'`, not by deleting the row.
 
 ### Authorization requirements not enforceable in SQL
+
+**`candidate_profiles.user_id` references `users(id)` with no database
+guarantee that the referenced user's `role` is `'candidate'`.** An
+employer or admin row could just as easily get a `candidate_profiles`
+row attached to it, and from there go on to apply to jobs. **The backend
+MUST verify `role = 'candidate'`** before creating a `candidate_profiles`
+row, and again before creating an `applications` row. **Resolved in
+Phase 4:** enforced by `RolesGuard` (`@Roles('candidate')`) on
+`CandidatesController` and on the applications-creation path — not
+something the schema can enforce on its own, but no longer just a
+flagged intention.
 
 **`messages.sender_user_id` has no database-level guarantee that the
 sender actually belongs to the conversation.** The foreign key only
@@ -435,19 +599,12 @@ sender is either:
 - a user whose `company_id` matches the job's `company_id` (via
   `applications.job_id → jobs.company_id`).
 
-**Flagged explicitly as a Phase 3 requirement so it is not forgotten** —
-this is application-layer authorization logic, not a schema change, but
-it is a hard prerequisite for `messages` being safe to write to.
-
-**`candidate_profiles.user_id` references `users(id)` with no database
-guarantee that the referenced user's `role` is `'candidate'`.** An
-employer or admin row could just as easily get a `candidate_profiles`
-row attached to it, and from there go on to apply to jobs. **The backend
-MUST verify `role = 'candidate'`** before creating a `candidate_profiles`
-row, and again before creating an `applications` row. **Flagged
-explicitly as a Phase 3 requirement** for the same reason as above — this
-is application-layer authorization, not something the schema can enforce
-on its own.
+**Still an open requirement, deferred to the future chat phase** — the
+`conversations`/`messages` tables exist in the schema, but no chat
+module or endpoints have been built yet (explicitly out of scope through
+Phase 5.5). This is application-layer authorization logic, not a schema
+change, but it is a hard prerequisite for `messages` being safe to write
+to whenever that phase starts.
 
 ---
 
@@ -587,6 +744,68 @@ actually active; that answer only comes from querying the table (or the
 seed script's market-flag list, which documents the current state in
 code review).
 
+### 8. `profile_completeness` weighting and the `is_searchable` threshold
+
+**Choice — the weighting formula.** `profile_completeness` is a 0–100
+score, computed as the sum of these independent, boolean checks (each
+either fully earned or not — no partial credit):
+
+| Signal | Points | Why this weight |
+|---|---|---|
+| `headline` is set | 10 | Narrative context, cheap to fill in |
+| `bio` is set | 10 | Narrative context, cheap to fill in |
+| at least 1 row in `candidate_skills` | 15 | The strongest structured signal for matching |
+| at least 1 row in `candidate_languages` | 10 | Useful, but not every role requires it |
+| `github_url` is set **or** at least 1 row in `candidate_portfolio_items` | 15 | Concrete evidence of ability — as important as skills |
+| at least 1 row in `candidate_work_history` | 15 | Strongest evidence of real-world experience |
+| at least 1 row in `candidate_education` | 5 | Weakest signal of the group — a formal-education gate would exclude self-taught candidates who are otherwise fully qualified |
+| salary expectation fully set (`min`, `max`, `currency`, `period` all present) | 15 | This platform's core value proposition is salary arbitrage — an employer's primary filter is salary fit, so this is weighted with skills/evidence, not treated as a minor extra |
+| `total_years_experience` is set | 5 | Lowest weight — already partly redundant with work history |
+| **Total** | **100** | |
+
+Per-row fields (e.g. `candidate_skills.years_experience`, portfolio item
+descriptions) are **not** individually scored — only "does at least one
+row exist" per table. Scoring every field of every row would reward
+padding a list with low-effort entries over actually filling in the
+categories that matter; presence-per-category is enough signal for an
+MVP.
+
+**Choice — the `is_searchable` threshold is 55.** Against this rubric,
+55 is comfortably clearable — e.g. skills + evidence + work history
+alone (15+15+15=45) plus one more small category, or headline + bio +
+skills + salary (10+10+15+15=50) plus a little more — without needing
+every category filled in. This is deliberately **not** the highest
+defensible bar: an earlier draft of this document proposed 70, which —
+worked out precisely against this same rubric — leaves only 30 points of
+slack; the three smallest categories (languages 10 + education 5 +
+years-experience 5 = 20) use up most of that on their own, leaving just
+10 points of remaining slack — not enough to also skip any of `skills`,
+`evidence`, `work history`, or `salary` (each 15 points), and only
+enough to skip **one** of `headline`/`bio` (10 points each), not both.
+In effect, at 70, skills/evidence/work-history/salary become fully
+mandatory and headline/bio become mostly mandatory (at most one may be
+missing). In a marketplace that doesn't have supply yet, that throttles
+the thing the business needs most: enough searchable candidates for
+employers to find anything at all. **55 is a deliberate early-stage
+setting, not a permanent judgment about candidate quality** — it should
+be raised once supply is healthy enough that being selective no longer
+costs the marketplace liquidity.
+
+A freshly-created profile with only the fields required at signup
+(`full_name`, `country_code`, `timezone`, `availability`) still scores
+close to 0 — those four are always present but none of them are
+counted above, since they're mandatory at creation and carry no
+*discriminating* signal about completeness.
+
+**Tradeoff:** a low early-stage threshold means `is_searchable`
+candidates may have thinner profiles than employers would ideally see —
+accepted deliberately, per above. Any fixed threshold is a judgment
+call, not derived from data (there's no usage data yet to derive it
+from). It's cheap to change later: `is_searchable` is recomputed from
+`profile_completeness` on every write, so raising the threshold constant
+doesn't require a migration or backfill, only a future write to each
+existing row (or a one-time recompute pass) to apply retroactively.
+
 ---
 
 ## Open questions
@@ -632,9 +851,11 @@ this document:
    "Add skills and experience," which implies some experience value per
    skill, and because a required/nice-to-have distinction on job skills is
    a near-zero-cost addition that materially helps the matching feature
-   named in decision #5. You should confirm whether "experience" means
-   years-per-skill (assumed here) or something else, like general resume
-   text.
+   named in decision #5. **Resolved in Phase 4.5:** confirmed as
+   per-skill years, and kept alongside the new
+   `candidate_profiles.total_years_experience` — the two answer different
+   questions (career-wide total vs. depth in one specific skill) and
+   both are needed, per your explicit instruction.
 
 7. **`skills.category`.** Not requested. Added as a nullable grouping
    column (e.g. "language" vs "framework") motivated by future matching,
@@ -653,3 +874,14 @@ this document:
    the document — hard `ON DELETE CASCADE` / `RESTRICT` / `SET NULL` were
    used throughout with no `deleted_at` flag anywhere except
    `skills.is_active`.)
+
+10. **`candidate_education`'s `description` column.** **Resolved:**
+    confirmed intended, not omitted — a `description text null` column
+    was added (thesis, honors, coursework), alongside
+    `institution_name` / `degree` / `field_of_study`.
+
+11. **`profile_completeness` threshold (70) is a judgment call, not
+    data-derived.** See [Key decision #8](#key-decisions)'s tradeoff —
+    there's no usage data yet to calibrate against. Cheap to change
+    later since it's just a constant the recalculation reads, not a
+    schema value.

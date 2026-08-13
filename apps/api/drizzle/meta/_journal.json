@@ -15,6 +15,20 @@
       "when": 1786564898422,
       "tag": "0001_add_email_verified_and_market_flags",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1786580265436,
+      "tag": "0002_candidate_profile_expansion_part1",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1786580308084,
+      "tag": "0003_candidate_profile_expansion_part2",
+      "breakpoints": true
     }
   ]
 }

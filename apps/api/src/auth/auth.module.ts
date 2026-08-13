@@ -6,6 +6,7 @@ import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { RolesGuard } from './guards/roles.guard';
+import { OptionalJwtAuthGuard } from './guards/optional-jwt-auth.guard';
 import { SESSION_TTL_SECONDS } from './constants';
 
 // registerAsync + useFactory defers reading JWT_SECRET until Nest
@@ -32,7 +33,7 @@ const jwtModule = JwtModule.registerAsync({
 @Module({
   imports: [DbModule, jwtModule],
   controllers: [AuthController],
-  providers: [AuthService, JwtAuthGuard, RolesGuard],
-  exports: [jwtModule, JwtAuthGuard, RolesGuard],
+  providers: [AuthService, JwtAuthGuard, RolesGuard, OptionalJwtAuthGuard],
+  exports: [jwtModule, JwtAuthGuard, RolesGuard, OptionalJwtAuthGuard],
 })
 export class AuthModule {}

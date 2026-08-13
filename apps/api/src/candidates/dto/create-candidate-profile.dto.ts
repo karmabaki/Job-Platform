@@ -5,6 +5,7 @@ import {
   IsString,
   IsUrl,
   Length,
+  Max,
   Min,
   MinLength,
 } from 'class-validator';
@@ -32,10 +33,6 @@ export class CreateCandidateProfileDto {
   @IsUrl()
   githubUrl?: string;
 
-  @IsOptional()
-  @IsUrl()
-  portfolioUrl?: string;
-
   // Format only — existence and market availability are checked
   // against the countries table in the service, not here.
   @IsString()
@@ -43,7 +40,7 @@ export class CreateCandidateProfileDto {
   countryCode: string;
 
   // Format only — validated against the IANA tz database in the
-  // service (see is-valid-timezone.ts), not trusted as-is.
+  // service (see common/is-valid-timezone.ts), not trusted as-is.
   @IsString()
   @MinLength(1)
   timezone: string;
@@ -69,4 +66,10 @@ export class CreateCandidateProfileDto {
   @IsOptional()
   @IsIn(SALARY_PERIOD_VALUES)
   salaryPeriod?: SalaryPeriod;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(60)
+  totalYearsExperience?: number;
 }

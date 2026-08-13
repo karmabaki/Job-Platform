@@ -5,6 +5,7 @@ import {
   IsString,
   IsUrl,
   Length,
+  Max,
   Min,
   MinLength,
 } from 'class-validator';
@@ -39,10 +40,6 @@ export class UpdateCandidateProfileDto {
   githubUrl?: string;
 
   @IsOptional()
-  @IsUrl()
-  portfolioUrl?: string;
-
-  @IsOptional()
   @IsString()
   @Length(2, 2)
   countryCode?: string;
@@ -74,4 +71,10 @@ export class UpdateCandidateProfileDto {
   @IsOptional()
   @IsIn(SALARY_PERIOD_VALUES)
   salaryPeriod?: SalaryPeriod;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(60)
+  totalYearsExperience?: number;
 }

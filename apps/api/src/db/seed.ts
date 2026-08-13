@@ -257,6 +257,27 @@ const SKILLS: { slug: string; name: string; category: string }[] = [
   { slug: 'jira', name: 'Jira', category: 'tool' },
   { slug: 'sentry', name: 'Sentry', category: 'tool' },
   { slug: 'postman', name: 'Postman', category: 'tool' },
+
+  // CMS / no-code / marketing / design / analytics — Phase 4.5, so the
+  // vocabulary is usable beyond backend engineering.
+  { slug: 'wordpress', name: 'WordPress', category: 'cms' },
+  { slug: 'woocommerce', name: 'WooCommerce', category: 'cms' },
+  { slug: 'shopify', name: 'Shopify', category: 'cms' },
+  { slug: 'webflow', name: 'Webflow', category: 'cms' },
+  { slug: 'elementor', name: 'Elementor', category: 'cms' },
+  { slug: 'drupal', name: 'Drupal', category: 'cms' },
+  { slug: 'magento', name: 'Magento', category: 'cms' },
+  { slug: 'wix', name: 'Wix', category: 'cms' },
+  { slug: 'squarespace', name: 'Squarespace', category: 'cms' },
+  { slug: 'hubspot', name: 'HubSpot', category: 'marketing' },
+  { slug: 'salesforce', name: 'Salesforce', category: 'marketing' },
+  { slug: 'seo', name: 'SEO', category: 'marketing' },
+  { slug: 'google-analytics', name: 'Google Analytics', category: 'marketing' },
+  { slug: 'photoshop', name: 'Photoshop', category: 'design' },
+  { slug: 'illustrator', name: 'Illustrator', category: 'design' },
+  { slug: 'excel', name: 'Excel', category: 'analytics' },
+  { slug: 'power-bi', name: 'Power BI', category: 'analytics' },
+  { slug: 'tableau', name: 'Tableau', category: 'analytics' },
 ];
 
 // Obvious free-text variants a candidate/employer might type, mapped

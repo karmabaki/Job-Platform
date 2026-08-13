@@ -20,8 +20,18 @@ async function bootstrap() {
   // httpOnly session cookie on cross-origin requests from apps/web.
   app.enableCors({ origin: requireEnv('WEB_ORIGIN'), credentials: true });
   app.use(cookieParser());
+  // transform: true added in Phase 5 — GET /jobs's query params
+  // (limit/offset as numbers, skills as a parsed array) need the
+  // ValidationPipe to actually hand the *coerced* values to the
+  // controller, not just validate against a throwaway transformed
+  // copy internally (which is all it does when this is false, the
+  // default). No existing DTO relied on transform being off.
   app.useGlobalPipes(
-    new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true }),
+    new ValidationPipe({
+      whitelist: true,
+      forbidNonWhitelisted: true,
+      transform: true,
+    }),
   );
   await app.listen(process.env.PORT ?? 3001);
 }

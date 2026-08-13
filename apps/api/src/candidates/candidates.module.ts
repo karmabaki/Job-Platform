@@ -19,5 +19,8 @@ import { CandidatesService } from './candidates.service';
   imports: [DbModule, SkillsModule, AuthModule],
   controllers: [CandidatesController],
   providers: [CandidatesService, JwtAuthGuard, RolesGuard],
+  // Exported for the applications module's employer-facing application
+  // view (candidate profile + skills, minus anything user-identifying).
+  exports: [CandidatesService],
 })
 export class CandidatesModule {}
